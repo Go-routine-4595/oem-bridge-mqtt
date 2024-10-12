@@ -76,7 +76,6 @@ func NewEventHub(svc model.IService, conf EventHubConfig) (IEventHub, error) {
 	}
 
 	// connection string
-	// 'DefaultEndpointsProtocol=https;AccountName=oemalarmstorage;AccountKey=<accountKey>;EndpointSuffix=core.windows.net
 	blobConnectionString := "" // coming form config file
 	// create a container client using a connection string and container name
 	checkClient, err = container.NewClientFromConnectionString(blobConnectionString, "oem-storage", nil)
