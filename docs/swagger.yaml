@@ -1,0 +1,63 @@
+basePath: /api/v1/
+definitions:
+  api.Info:
+    properties:
+      compile_date:
+        type: string
+      date:
+        type: string
+      log_level:
+        type: string
+      version:
+        type: string
+    type: object
+  api.QueueInfo:
+    properties:
+      messages:
+        type: integer
+      messages_ready:
+        type: integer
+      messages_unacknowledged:
+        type: integer
+    type: object
+host: localhost:8090
+info:
+  contact: {}
+  description: API for Metrics
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  title: Metrics API
+  version: "1.0"
+paths:
+  /info:
+    get:
+      description: provides server info
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.Info'
+      summary: Info
+      tags:
+      - example
+  /metrics:
+    get:
+      consumes:
+      - application/json
+      description: provides RabbitMQ metrics
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.QueueInfo'
+      summary: metrics
+      tags:
+      - example
+schemes:
+- http
+swagger: "2.0"
