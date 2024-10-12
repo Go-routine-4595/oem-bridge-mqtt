@@ -16,7 +16,6 @@ import (
 )
 
 // connection string can have the event hub name like this
-// Endpoint=sb://FctsNAMemNADevlEvtHub01.servicebus.windows.net/;SharedAccessKeyName=<KeyName>;SharedAccessKey=<KeyValue>;EntityPath=honeywell-uas-oem-alarms
 // see https://learn.microsoft.com/en-us/azure/event-hubs/event-hubs-get-connection-string
 // see https://azure.github.io/azure-sdk/golang_introduction.html
 // see https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs#ConsumerClient.Close
