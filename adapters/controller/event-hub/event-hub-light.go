@@ -3,6 +3,7 @@ package event_hub
 import (
 	"context"
 	"errors"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Go-routine-4595/oem-bridge-mqtt/model"
 	"os"
 	"sync"
@@ -57,6 +58,7 @@ func (ehl *EventHubLight) Start(ctx context.Context, wg *sync.WaitGroup) {
 	}
 	// Consume events from all partitions
 	for _, partitionID := range eventHubProps.PartitionIDs {
+		ehl.logger.Info().Str("partitionID", partitionID).Msg("Starting partition consumer")
 		go ehl.consumePartition(ctx, partitionID)
 	}
 }
@@ -65,7 +67,8 @@ func (ehl *EventHubLight) consumePartition(ctx context.Context, partitionID stri
 	var (
 		partitionClient *azeventhubs.PartitionClient
 		events          []*azeventhubs.ReceivedEventData
-		f               bool = false
+		receiveCtx      context.Context
+		cancelFunc      context.CancelFunc
 		err             error
 	)
 
@@ -75,7 +78,7 @@ func (ehl *EventHubLight) consumePartition(ctx context.Context, partitionID stri
 		&azeventhubs.PartitionClientOptions{
 			// Start from the latest event in the stream
 			StartPosition: azeventhubs.StartPosition{
-				Earliest: &f, // Set to true if you want to start from the earliest event
+				Earliest: to.Ptr(false), // Set to true if you want to start from the earliest event
 			},
 		})
 	if err != nil {
@@ -86,15 +89,20 @@ func (ehl *EventHubLight) consumePartition(ctx context.Context, partitionID stri
 
 	// Start receiving events from the latest position
 	for {
-		// Receive events in batches (up to 100 messages at a time)
-		events, err = partitionClient.ReceiveEvents(ctx, 100, nil)
+		// Receive events in batches (up to 10 messages at a time or wait for 10s maximum before flushing the batch
+		receiveCtx, cancelFunc = context.WithTimeout(ctx, 10000*time.Millisecond)
+		events, err = partitionClient.ReceiveEvents(receiveCtx, 10, nil)
+		cancelFunc()
 
 		if err != nil {
-			if ctx.Err() != nil {
-				ehl.logger.Error().Err(err).Str("partitionID", partitionID).Msg("context canceled")
-				return // Exit if context is done
+			if errors.Is(err, context.Canceled) {
+				ehl.logger.Warn().Err(err).Str("partitionID", partitionID).Msg("context canceled, shutting down")
+				return
 			}
-			ehl.logger.Error().Err(err).Str("partitionID", partitionID).Msg("failed to receive events")
+			if !errors.Is(err, context.DeadlineExceeded) {
+				ehl.logger.Error().Err(err).Str("partitionID", partitionID).Msg("failed to receive events")
+				return
+			}
 			continue
 		}
 

@@ -70,7 +70,19 @@
                 "date": {
                     "type": "string"
                 },
+                "encryption_flag": {
+                    "type": "integer"
+                },
                 "log_level": {
+                    "type": "string"
+                },
+                "log_level_string": {
+                    "type": "string"
+                },
+                "mqtt_connection": {
+                    "type": "string"
+                },
+                "mqtt_topic": {
                     "type": "string"
                 },
                 "version": {

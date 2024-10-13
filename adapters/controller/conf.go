@@ -8,4 +8,9 @@ type ControllerConfig struct {
 	Port             int    `yaml:"Port"`
 	CompileDate      string
 	Version          string
+	DebugLevel       int
+	EncryptionFlag   int
+	MqttConnection   string
+	MqttTopic        string
+	LogLevelString   string
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	event_hub "github.com/Go-routine-4595/oem-bridge-mqtt/adapters/controller/event-hub"
@@ -9,15 +10,17 @@ import (
 	"gopkg.in/yaml.v3"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
+	"unicode"
 
-	//event_hub "github.com/Go-routine-4595/oem-bridge-mqtt/adapters/gateway/event-hub"
-	//"github.com/Go-routine-4595/oem-bridge-mqtt/middleware"
 	"github.com/Go-routine-4595/oem-bridge-mqtt/adapters/controller"
 	papi "github.com/Go-routine-4595/oem-bridge-mqtt/adapters/controller/api"
-	//"github.com/Go-routine-4595/oem-bridge-mqtt/adapters/controller/broker"
+	"github.com/Go-routine-4595/oem-bridge-mqtt/crypto-util"
+	//event_hub "github.com/Go-routine-4595/oem-bridge-mqtt/adapters/gateway/event-hub"
+	"github.com/Go-routine-4595/oem-bridge-mqtt/middleware"
 	"github.com/Go-routine-4595/oem-bridge-mqtt/model"
 	"github.com/Go-routine-4595/oem-bridge-mqtt/service"
 
@@ -28,6 +31,7 @@ import (
 const (
 	config  = "config2.yaml"
 	version = 0.1
+	seed    = "this is my test"
 )
 
 var CompileDate string
@@ -43,12 +47,12 @@ type Config struct {
 	TypeName                    `yaml:"Mqtt"`
 	Duration                    int `yaml:"Duration"`
 	LogLevel                    int `yaml:"LogLevel"`
+	EncryptionFlag              int `yaml:"EncryptionFlag"`
 }
 
 func main() {
 	var (
-		conf Config
-		//svr    *broker.Controller
+		conf   Config
 		svc    model.IService
 		gtw    service.ISendAlarm
 		eh     event_hub.IEventHub
@@ -73,9 +77,23 @@ func main() {
 		conf = openConfigFile(args[1])
 	}
 
+	if conf.EncryptionFlag == 1 {
+		conf.EventHubConfig.Connection, err = decrypt(conf.EventHubConfig.Connection)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to decrypt")
+			os.Exit(-1)
+		}
+	}
+
 	// provide additional info for the confg/API
 	conf.ControllerConfig.CompileDate = CompileDate
 	conf.ControllerConfig.Version = fmt.Sprintf("%.2f", version)
+
+	// additional information about the config for the API ingo
+	conf.ControllerConfig.LogLevel = conf.LogLevel
+	conf.ControllerConfig.EncryptionFlag = conf.EncryptionFlag
+	conf.ControllerConfig.MqttConnection = conf.TypeName.Connection
+	conf.ControllerConfig.MqttTopic = conf.TypeName.Topic
 
 	// log level
 	log.Logger.With().Str("instanceId", "myid").Logger()
@@ -88,18 +106,25 @@ func main() {
 	switch zerolog.InfoLevel + zerolog.Level(conf.LogLevel) {
 	case 5:
 		fmt.Println("panic")
+		conf.ControllerConfig.LogLevelString = "Panic"
 	case 4:
 		fmt.Println("fatal")
+		conf.ControllerConfig.LogLevelString = "Fatal"
 	case 3:
 		fmt.Println("error")
+		conf.ControllerConfig.LogLevelString = "Error"
 	case 2:
 		fmt.Println("warning")
+		conf.ControllerConfig.LogLevelString = "Warning"
 	case 1:
 		fmt.Println("info")
+		conf.ControllerConfig.LogLevelString = "Info"
 	case 0:
 		fmt.Println("debug")
+		conf.ControllerConfig.LogLevelString = "Debug"
 	case -1:
 		fmt.Println("trace")
+		conf.ControllerConfig.LogLevelString = "Panic"
 	}
 
 	// duration of the service (exit after duration)
@@ -110,11 +135,14 @@ func main() {
 	}
 
 	// new gateway (display or eh)
-	// gtw = display.NewDisplay()
+	//gtw = display.NewDisplay()
 	gtw = mqtt.NewMqtt(conf.TypeName.Connection, conf.TypeName.Topic, conf.LogLevel, ctx)
 
 	// new service with simple display
 	svc = service.NewService(gtw)
+
+	// new middleware
+	svc = middleware.NewLogger(conf.ControllerConfig, svc)
 
 	eh, err = event_hub.NewEventHubLight(svc, conf.EventHubConfig)
 	if err != nil {
@@ -122,7 +150,6 @@ func main() {
 		os.Exit(-1)
 	}
 	// start the controller
-
 	eh.Start(ctx, wg)
 
 	// new Api
@@ -140,6 +167,41 @@ func main() {
 	// give 500 ms grace period to flush all logs
 	time.Sleep(500 * time.Millisecond)
 	wg.Wait()
+
+}
+
+func decrypt(cipheredTextSting string) (string, error) {
+
+	var (
+		key          = []byte(seed)
+		res          []byte
+		iv           []byte
+		cipheredText []byte
+		err          error
+		plaintText   string
+	)
+
+	key = crypto_util.GenerateKey(string(key))
+	iv, err = hex.DecodeString(crypto_util.IV)
+	if err != nil {
+		return "", errors.Join(err, errors.New("Failed to decode the IV"))
+	}
+
+	cipheredText, err = hex.DecodeString(cipheredTextSting)
+	if err != nil {
+		return "", errors.Join(err, errors.New("Failed to encode the IV"))
+	}
+
+	res, err = crypto_util.DecryptAES256CBC(cipheredText, key, iv)
+	if err != nil {
+		return "", errors.Join(err, errors.New("Failed to decrypt"))
+	}
+	plaintText = string(res)
+	plaintText = strings.TrimRightFunc(plaintText, func(r rune) bool {
+		return unicode.IsControl(r)
+	})
+
+	return plaintText, nil
 }
 
 func openConfigFile(s string) Config {

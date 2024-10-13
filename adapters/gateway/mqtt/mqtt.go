@@ -39,7 +39,7 @@ func NewMqtt(con string, topic string, logl int, ctx context.Context) *Mqtt {
 		logger:   l,
 		ClientID: cid,
 		opt: pmqtt.NewClientOptions().
-			AddBroker("ssl://broker.emqx.io:8883").
+			AddBroker(con).
 			SetClientID("oem-alarm-bridge-" + cid.String()).
 			SetCleanSession(true).
 			SetAutoReconnect(true).
@@ -88,6 +88,12 @@ func (m *Mqtt) SendAlarm(events []model.FCTSDataModel) error {
 		}
 	}
 	return nil
+}
+
+func (m *Mqtt) Disconnect() {
+	m.client.Disconnect(500)
+	m.logger.Info().Msg("Disconnected from mqtt broker")
+	m.client = nil
 }
 
 func (m *Mqtt) Connect() error {

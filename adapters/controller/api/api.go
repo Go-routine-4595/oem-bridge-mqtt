@@ -34,10 +34,14 @@ type Api struct {
 }
 
 type Info struct {
-	CompileDate string `json:"compile_date"`
-	Version     string `json:"version"`
-	LogLevel    string `json:"log_level"`
-	Date        string `json:"date"`
+	CompileDate    string `json:"compile_date"`
+	Version        string `json:"version"`
+	LogLevel       string `json:"log_level"`
+	LogLevelString string `json:"log_level_string"`
+	Date           string `json:"date"`
+	EncryptionFlag int    `json:"encryption_flag"`
+	MqttConnection string `json:"mqtt_connection"`
+	MqttTopic      string `json:"mqtt_topic"`
 }
 
 var info Info
@@ -53,6 +57,10 @@ func NewApi(conf controller.ControllerConfig) *Api {
 	info.CompileDate = conf.CompileDate
 	info.Version = conf.Version
 	info.LogLevel = fmt.Sprintf("%d", conf.LogLevel)
+	info.EncryptionFlag = conf.EncryptionFlag
+	info.MqttConnection = conf.MqttConnection
+	info.MqttTopic = conf.MqttTopic
+	info.LogLevelString = conf.LogLevelString
 
 	return &Api{
 		MgtUrl:    conf.MgtUrl,
