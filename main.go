@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	event_hub "github.com/Go-routine-4595/oem-bridge-mqtt/adapters/controller/event-hub"
+	event_hub_consumer "github.com/Go-routine-4595/oem-bridge-mqtt/adapters/gateway/event-hub"
 	"github.com/Go-routine-4595/oem-bridge-mqtt/adapters/gateway/mqtt"
+	"github.com/Go-routine-4595/oem-bridge-mqtt/adapters/gateway/storage"
 	"gopkg.in/yaml.v3"
 	"os"
 	"os/signal"
@@ -19,7 +21,6 @@ import (
 	"github.com/Go-routine-4595/oem-bridge-mqtt/adapters/controller"
 	papi "github.com/Go-routine-4595/oem-bridge-mqtt/adapters/controller/api"
 	"github.com/Go-routine-4595/oem-bridge-mqtt/crypto-util"
-	//event_hub "github.com/Go-routine-4595/oem-bridge-mqtt/adapters/gateway/event-hub"
 	"github.com/Go-routine-4595/oem-bridge-mqtt/middleware"
 	"github.com/Go-routine-4595/oem-bridge-mqtt/model"
 	"github.com/Go-routine-4595/oem-bridge-mqtt/service"
@@ -36,18 +37,15 @@ const (
 
 var CompileDate string
 
-type TypeName struct {
-	Connection string `yaml:"Connection"`
-	Topic      string `yaml:"Topic"`
-}
-
 type Config struct {
-	controller.ControllerConfig `yaml:"ControllerConfig"`
-	event_hub.EventHubConfig    `yaml:"EventHubConfig"`
-	TypeName                    `yaml:"Mqtt"`
-	Duration                    int `yaml:"Duration"`
-	LogLevel                    int `yaml:"LogLevel"`
-	EncryptionFlag              int `yaml:"EncryptionFlag"`
+	controller.ControllerConfig               `yaml:"ControllerConfig"`
+	event_hub.EventHubConfig                  `yaml:"EventHubConfig"`
+	event_hub_consumer.EventHubConfigProducer `yaml:"EventHubConfigProducer"`
+	mqtt.MqttConf                             `yaml:"Mqtt"`
+	storage.StorageConf                       `yaml:"Storage"`
+	Duration                                  int `yaml:"Duration"`
+	LogLevel                                  int `yaml:"LogLevel"`
+	EncryptionFlag                            int `yaml:"EncryptionFlag"`
 }
 
 func main() {
@@ -56,6 +54,7 @@ func main() {
 		svc    model.IService
 		gtw    service.ISendAlarm
 		eh     event_hub.IEventHub
+		sto    model.IStorage
 		api    *papi.Api
 		wg     *sync.WaitGroup
 		ctx    context.Context
@@ -66,17 +65,21 @@ func main() {
 	)
 	args = os.Args
 
+	// Print usefule information
 	fmt.Println("Starting oem-alarm-bridge v", version)
 	fmt.Println(CompileDate)
 
+	// define the waiting group for all component that needs a clean teardown
 	wg = &sync.WaitGroup{}
 
+	// default config file
 	if len(args) == 1 {
 		conf = openConfigFile(config)
 	} else {
 		conf = openConfigFile(args[1])
 	}
 
+	// we decrypt the event hub connection string stored in the config file
 	if conf.EncryptionFlag == 1 {
 		conf.EventHubConfig.Connection, err = decrypt(conf.EventHubConfig.Connection)
 		if err != nil {
@@ -92,8 +95,10 @@ func main() {
 	// additional information about the config for the API ingo
 	conf.ControllerConfig.LogLevel = conf.LogLevel
 	conf.ControllerConfig.EncryptionFlag = conf.EncryptionFlag
-	conf.ControllerConfig.MqttConnection = conf.TypeName.Connection
-	conf.ControllerConfig.MqttTopic = conf.TypeName.Topic
+	conf.ControllerConfig.MqttConnection = conf.MqttConf.Connection
+	conf.ControllerConfig.MqttTopic = conf.MqttConf.Topic
+	// additional info
+	conf.EventHubConfigProducer.LogLevel = conf.LogLevel
 
 	// log level
 	log.Logger.With().Str("instanceId", "myid").Logger()
@@ -127,23 +132,64 @@ func main() {
 		conf.ControllerConfig.LogLevelString = "Panic"
 	}
 
-	// duration of the service (exit after duration)
+	// duration of the service (exit after duration) or never exit if conf.Duration <= 0
 	if conf.Duration > 0 {
 		ctx, cancel = context.WithTimeout(context.Background(), time.Duration(conf.Duration)*time.Minute)
 	} else {
 		ctx, cancel = context.WithCancel(context.Background())
 	}
 
-	// new gateway (display or eh)
-	//gtw = display.NewDisplay()
-	gtw = mqtt.NewMqtt(conf.TypeName.Connection, conf.TypeName.Topic, conf.LogLevel, ctx)
+	//------------------------------
+	// Gateway definition start here
+	//------------------------------
+	// we can have (mutually exclusive)
 
-	// new service with simple display
-	svc = service.NewService(gtw)
+	// a simple display, it does nothing but print what should have been sent
+	//gtw, err = display.NewDisplay()
 
-	// new middleware
+	// a MQTT gateway should we use MQTT
+	//gtw, err = mqtt.NewMqtt(conf.MqttConf, conf.LogLevel, ctx)
+
+	// Gateway Event hub should we use an event hub
+	// in this case we need first to decrypt the connection string stored in the config file
+	if conf.EncryptionFlag == 1 {
+		conf.EventHubConfigProducer.Connection, err = decrypt(conf.EventHubConfigProducer.Connection)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to decrypt EventHubConfigProducer")
+			os.Exit(-1)
+		}
+	}
+	gtw, err = event_hub_consumer.NewEventHub(ctx, wg, conf.EventHubConfigProducer)
+
+	// exit we can't have a gateway
+	if err != nil {
+		log.Panic().Err(err).Msg("Failed to create the gateway")
+	}
+
+	//---------------------------------------------
+	// define a storage, if the there is not file
+	// define, that's still ok :)
+	//----------------------------------------------
+	// storage ie. mapping between Honeywell and SAP
+	sto = storage.NewStorage(conf.StorageConf, ctx)
+
+	// -----------------------------------------------------------------
+	// new service translate the Honeywell data model to FTCS data model
+	// this is the use case of the service the heart of it!
+	//------------------------------------------------------------------
+	svc = service.NewService(gtw, sto)
+
+	//------------------------------------------------------------------------------
+	// give some metric how long it took
+	// middleware the measure how it took to translate the data model and to send it
+	// -----------------------------------------------------------------------------
 	svc = middleware.NewLogger(conf.ControllerConfig, svc)
 
+	//-----------------------------------------------------------
+	// we define the controller here
+	// ie. the main entry to the service, here it's the event hub
+	// we listen to new message/event
+	//-----------------------------------------------------------
 	eh, err = event_hub.NewEventHubLight(svc, conf.EventHubConfig)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create event hub")
@@ -152,12 +198,18 @@ func main() {
 	// start the controller
 	eh.Start(ctx, wg)
 
-	// new Api
+	//------------------------------------------------------------
+	// new Api, give the service some status
+	// and define the API for K8S shall we integrate this service
+	// in a K8S cluster
+	//------------------------------------------------------------
 	api = papi.NewApi(conf.ControllerConfig)
 
 	// start the Api
 	api.Start(ctx, wg)
 
+	// listen to SIGINT and cancel the context so everyone can do a clean teardown with their connection
+	// if needed
 	sig = make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -166,6 +218,8 @@ func main() {
 	}()
 	// give 500 ms grace period to flush all logs
 	time.Sleep(500 * time.Millisecond)
+
+	// wait for everyone clean teardown before exiting
 	wg.Wait()
 
 }

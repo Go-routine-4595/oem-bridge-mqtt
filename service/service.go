@@ -14,11 +14,13 @@ type ISendAlarm interface {
 
 type Service struct {
 	gateway ISendAlarm
+	storage model.IStorage
 }
 
-func NewService(g ISendAlarm) *Service {
+func NewService(g ISendAlarm, s model.IStorage) *Service {
 	return &Service{
 		gateway: g,
+		storage: s,
 	}
 }
 
@@ -52,6 +54,7 @@ func (s *Service) Translate(events hw.Events) []model.FCTSDataModel {
 		FCTSevent  model.FCTSDataModel
 		hwEvent    hw.AssetEvent
 		properties []map[string]interface{}
+		sapid      string
 	)
 	for _, hwEvent = range events.AssetEvents {
 		// HW data model has 3 properties we nee to map in FCTS data model
@@ -66,6 +69,12 @@ func (s *Service) Translate(events hw.Events) []model.FCTSDataModel {
 		// Initialize the map at index 3
 		properties[2] = make(map[string]interface{})
 		properties[2]["AssetName"] = hwEvent.AssetName
+		// Get the SAP id if any
+		sapid = s.storage.GetSapId(hwEvent.AssetName)
+		if sapid != "" {
+			properties = append(properties, make(map[string]interface{}))
+			properties[3]["SAP_ID"] = sapid
+		}
 
 		FCTSevent = model.FCTSDataModel{
 			SiteCode:   "NAMEM",

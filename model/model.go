@@ -5,6 +5,10 @@ type IService interface {
 	TestAlarm(events []byte) error
 }
 
+type IStorage interface {
+	GetSapId(a string) string
+}
+
 type FCTSDataModel struct {
 	SiteCode   string      `json:"site_code"`
 	SensorId   string      `json:"sensor_id"`

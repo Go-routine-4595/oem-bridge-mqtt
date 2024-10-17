@@ -16,13 +16,17 @@ const (
 
 // example
 // manually encrypt the EH connection string
-// openssl enc -aes-256-gcm-siv -in event-hub-constring-secret.txt -out ciphertext.bin -K 76dabc4cf1c8127220f1a401c658be5788f63df98e553f55aeeebc9acc78ad14 -iv 00112233445566778899aabb -p -nosalt
-// openssl pkeyutl -encrypt -in event-hub-constring-secret.txt -out ciphertext.bin -keyform raw -aes-256-gcm -pkeyopt "key:76dabc4cf1c8127220f1a401c658be5788f63df98e553f55aeeebc9acc78ad14" -pkeyopt "iv:00112233445566778899aabb"
 // openssl enc -aes-256-cbc -in event-hub-constring-secret.txt -out ciphertext.bin -K 76dabc4cf1c8127220f1a401c658be5788f63df98e553f55aeeebc9acc78ad14 -iv 00112233445566778899aabbccddeeff -p -nosalt
+//
+// Check the encrypted file
+// xxd -p ciphertext.bin
+//
 // Decrypt
-// openssl pkeyutl -decrypt -in ciphertext.bin -out decrypted.txt -keyform raw -aes-256-gcm -pkeyopt "key:61207665727920766572792076657279207665727920736563726574206b6579" -pkeyopt "iv:00112233445566778899aabb"
+// openssl enc -d -aes-256-cbc -in ciphertext.bin -out decrypted.txt -K 76dabc4cf1c8127220f1a401c658be5788f63df98e553f55aeeebc9acc78ad14 -iv 00112233445566778899aabb -p
+//
 // manually generate the key
-//  echo -n "this is my test" | openssl dgst -sha256
+//	echo -n "this is my test" | openssl dgst -sha256
+//
 
 // Give key
 func GenerateKey(seed string) []byte {

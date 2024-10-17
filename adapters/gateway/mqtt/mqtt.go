@@ -14,6 +14,11 @@ import (
 	"time"
 )
 
+type MqttConf struct {
+	Connection string `yaml:"Connection"`
+	Topic      string `yaml:"Topic"`
+}
+
 type Mqtt struct {
 	Topic    string
 	MgtUrl   string
@@ -23,7 +28,7 @@ type Mqtt struct {
 	client   pmqtt.Client
 }
 
-func NewMqtt(con string, topic string, logl int, ctx context.Context) *Mqtt {
+func NewMqtt(conf MqttConf, logl int, ctx context.Context) (*Mqtt, error) {
 	var (
 		err error
 		l   zerolog.Logger
@@ -34,12 +39,12 @@ func NewMqtt(con string, topic string, logl int, ctx context.Context) *Mqtt {
 	l = zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}).Level(zerolog.InfoLevel+zerolog.Level(logl)).With().Timestamp().Int("pid", os.Getpid()).Logger()
 	cid = uuid.NewV4()
 	c := &Mqtt{
-		Topic:    topic,
-		MgtUrl:   con,
+		Topic:    conf.Topic,
+		MgtUrl:   conf.Connection,
 		logger:   l,
 		ClientID: cid,
 		opt: pmqtt.NewClientOptions().
-			AddBroker(con).
+			AddBroker(conf.Connection).
 			SetClientID("oem-alarm-bridge-" + cid.String()).
 			SetCleanSession(true).
 			SetAutoReconnect(true).
@@ -61,11 +66,8 @@ func NewMqtt(con string, topic string, logl int, ctx context.Context) *Mqtt {
 	}()
 
 	err = c.Connect()
-	if err != nil {
-		panic(err)
-	}
 
-	return c
+	return c, err
 }
 
 func (m *Mqtt) SendAlarm(events []model.FCTSDataModel) error {

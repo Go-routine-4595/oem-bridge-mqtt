@@ -9,8 +9,8 @@ import (
 
 type Display struct{}
 
-func NewDisplay() *Display {
-	return &Display{}
+func NewDisplay() (*Display, error) {
+	return &Display{}, nil
 }
 
 func (d *Display) SendAlarm(events []model.FCTSDataModel) error {
